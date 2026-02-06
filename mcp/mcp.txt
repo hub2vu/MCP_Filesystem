@@ -1,5 +1,5 @@
 ""
-ngrok config add-authtoken 39FkjGd5Weg70H5nHKOiJlCmPRu_7EYiGgLbrJY16n9ztrog4
+ngrok config add-authtoken <token>
 
 cd C:\Users\hub2v\Desktop\MCP_TEST\mcp-fs-http
 set ALLOWED_BASE=C:\Users\hub2v\Desktop\Beamforming
