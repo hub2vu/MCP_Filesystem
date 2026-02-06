@@ -1,0 +1,5 @@
+
+> mcp-fs-http@1.0.0 dev
+> tsx server.ts
+
+ERROR: ALLOWED_BASE env is required.

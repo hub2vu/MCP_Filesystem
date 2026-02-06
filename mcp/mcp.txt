@@ -1,0 +1,11 @@
+""
+ngrok config add-authtoken 39FkjGd5Weg70H5nHKOiJlCmPRu_7EYiGgLbrJY16n9ztrog4
+
+cd C:\Users\hub2v\Desktop\MCP_TEST\mcp-fs-http
+set ALLOWED_BASE=C:\Users\hub2v\Desktop\Beamforming
+npm run dev
+
+ngrok http 3333
+
+http://127.0.0.1:4040 # 로그
+https://overtolerant-hyperthermal-trisha.ngrok-free.dev/mcp
