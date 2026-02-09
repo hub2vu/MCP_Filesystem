@@ -1,5 +1,5 @@
 // server.ts
-// MCP Filesystem (readonly) — uses official SDK StreamableHTTPServerTransport
+// MCP Filesystem (read + write) — uses official SDK StreamableHTTPServerTransport
 //
 // ChatGPT의 openai-mcp 클라이언트는 MCP Streamable HTTP 프로토콜을 사용합니다.
 // 공식 SDK의 transport가 SSE 응답 포맷·세션 관리·JSON-RPC 라우팅을 모두 처리합니다.
@@ -68,7 +68,7 @@ function safePath(raw: string | undefined): string {
 // 매 세션마다 새 McpServer를 만든다 (독립 세션 상태)
 function createMcpServer(): McpServer {
   const mcp = new McpServer(
-    { name: "local-filesystem-readonly", version: "2.0.0" },
+    { name: "local-filesystem", version: "3.0.0" },
     { capabilities: { tools: {} } },
   );
 
@@ -136,6 +136,153 @@ function createMcpServer(): McpServer {
       const buf = await fs.readFile(abs);
       const sliced = buf.subarray(0, Math.min(buf.length, limit));
       return { content: [{ type: "text" as const, text: sliced.toString("utf8") }] };
+    },
+  );
+
+  // ══════════════════════════════════════
+  //  WRITE TOOLS
+  // ══════════════════════════════════════
+
+  // ── fs_write ──
+  mcp.tool(
+    "fs_write",
+    `Write (create or overwrite) a UTF-8 text file. Parent directories are created automatically. Paths relative to ALLOWED_BASE (${allowedBaseAbs}).`,
+    {
+      path: z.string().describe("File path to write"),
+      content: z.string().describe("Text content to write"),
+    } as any,
+    async (args: any) => {
+      const abs = safePath(args?.path);
+      console.log(`  [fs_write] path="${args?.path}" → ${abs} (${args?.content?.length ?? 0} chars)`);
+
+      // 부모 디렉토리 자동 생성
+      await fs.mkdir(path.dirname(abs), { recursive: true });
+      await fs.writeFile(abs, args?.content ?? "", "utf8");
+
+      return { content: [{ type: "text" as const, text: `Written ${args?.content?.length ?? 0} chars to ${abs}` }] };
+    },
+  );
+
+  // ── write_file (alias) ──
+  mcp.tool(
+    "write_file",
+    "Alias of fs_write — write (create or overwrite) a text file.",
+    {
+      path: z.string().describe("File path to write"),
+      content: z.string().describe("Text content to write"),
+    } as any,
+    async (args: any) => {
+      const abs = safePath(args?.path);
+      await fs.mkdir(path.dirname(abs), { recursive: true });
+      await fs.writeFile(abs, args?.content ?? "", "utf8");
+      return { content: [{ type: "text" as const, text: `Written ${args?.content?.length ?? 0} chars to ${abs}` }] };
+    },
+  );
+
+  // ── fs_append ──
+  mcp.tool(
+    "fs_append",
+    `Append text to an existing file (or create it). Paths relative to ALLOWED_BASE (${allowedBaseAbs}).`,
+    {
+      path: z.string().describe("File path to append to"),
+      content: z.string().describe("Text content to append"),
+    } as any,
+    async (args: any) => {
+      const abs = safePath(args?.path);
+      console.log(`  [fs_append] path="${args?.path}" → ${abs}`);
+
+      await fs.mkdir(path.dirname(abs), { recursive: true });
+      await fs.appendFile(abs, args?.content ?? "", "utf8");
+
+      return { content: [{ type: "text" as const, text: `Appended ${args?.content?.length ?? 0} chars to ${abs}` }] };
+    },
+  );
+
+  // ── fs_mkdir ──
+  mcp.tool(
+    "fs_mkdir",
+    `Create a directory (and any missing parents). Paths relative to ALLOWED_BASE (${allowedBaseAbs}).`,
+    {
+      path: z.string().describe("Directory path to create"),
+    } as any,
+    async (args: any) => {
+      const abs = safePath(args?.path);
+      console.log(`  [fs_mkdir] path="${args?.path}" → ${abs}`);
+
+      await fs.mkdir(abs, { recursive: true });
+
+      return { content: [{ type: "text" as const, text: `Directory created: ${abs}` }] };
+    },
+  );
+
+  // ── fs_rename ──
+  mcp.tool(
+    "fs_rename",
+    `Rename or move a file/directory. Both paths relative to ALLOWED_BASE (${allowedBaseAbs}).`,
+    {
+      oldPath: z.string().describe("Current path"),
+      newPath: z.string().describe("New path"),
+    } as any,
+    async (args: any) => {
+      const absOld = safePath(args?.oldPath);
+      const absNew = safePath(args?.newPath);
+      console.log(`  [fs_rename] "${absOld}" → "${absNew}"`);
+
+      // 이동 대상의 부모 디렉토리 자동 생성
+      await fs.mkdir(path.dirname(absNew), { recursive: true });
+      await fs.rename(absOld, absNew);
+
+      return { content: [{ type: "text" as const, text: `Renamed: ${absOld} → ${absNew}` }] };
+    },
+  );
+
+  // ── fs_delete ──
+  mcp.tool(
+    "fs_delete",
+    `Delete a file or directory (recursive). Paths relative to ALLOWED_BASE (${allowedBaseAbs}).`,
+    {
+      path: z.string().describe("Path to delete"),
+    } as any,
+    async (args: any) => {
+      const abs = safePath(args?.path);
+      console.log(`  [fs_delete] path="${args?.path}" → ${abs}`);
+
+      // 안전장치: ALLOWED_BASE 자체는 삭제 불가
+      if (abs === allowedBaseAbs) {
+        throw new Error("Cannot delete ALLOWED_BASE root directory itself.");
+      }
+
+      const st = await fs.stat(abs);
+      if (st.isDirectory()) {
+        await fs.rm(abs, { recursive: true, force: true });
+      } else {
+        await fs.unlink(abs);
+      }
+
+      return { content: [{ type: "text" as const, text: `Deleted: ${abs}` }] };
+    },
+  );
+
+  // ── fs_copy ──
+  mcp.tool(
+    "fs_copy",
+    `Copy a file. Both paths relative to ALLOWED_BASE (${allowedBaseAbs}).`,
+    {
+      srcPath: z.string().describe("Source file path"),
+      destPath: z.string().describe("Destination file path"),
+    } as any,
+    async (args: any) => {
+      const absSrc = safePath(args?.srcPath);
+      const absDest = safePath(args?.destPath);
+      console.log(`  [fs_copy] "${absSrc}" → "${absDest}"`);
+
+      const st = await fs.stat(absSrc);
+      if (!st.isFile()) throw new Error(`Source is not a file: ${absSrc}`);
+
+      await fs.mkdir(path.dirname(absDest), { recursive: true });
+      await fs.copyFile(absSrc, absDest);
+
+      return { content: [{ type: "text" as const, text: `Copied: ${absSrc} → ${absDest}` }] };
     },
   );
 
